@@ -1,6 +1,8 @@
 const http = require("http");
-const app = require("express")();
-app.get("/", (req,res) => res.sendFile(__dirname + '/index.html'));
+const express = require('express');
+const { SSL_OP_SSLEAY_080_CLIENT_DH_BUG } = require("constants");
+const app = express();
+app.use(express.static('public'));
 app.listen(5050, ()=>console.log("Listening on http port 5050"));
 const websocketServer = require("websocket").server;
 const httpServer = http.createServer();
@@ -35,7 +37,6 @@ wsServer.on("request", request =>
         "balls" : 20,
         "clients" : []
       }
-
       const payload =
       {
         "method" : "create",
@@ -50,35 +51,55 @@ wsServer.on("request", request =>
     //a client wants to join
     if(result.method === "join")
     {
-      console.log("join result");
       const clientId = result.clientId;
       const gameId = result.gameId;
-      const game = games[gameId];
-      if(game.clients.length >= 3)
+      const name = result.name;
+      
+      if(!(gameId in games))
       {
-        //max players reached
-        return;
+        const payload =
+        {
+          "method" : "error",
+          "reason" : "game ID does not exist. Please check ID."
+        }
+        clients[clientId].connection.send(JSON.stringify(payload));
       }
-      const color = {"0": "Red", "1": "Green", "2": "Blue"}[game.clients.length]
-      game.clients.push
-      ({
-        "clientId" : clientId,
-        "color" : color
-      })
-
-      if(game.clients.length === 3) updateGameState();
-
-      const payload =
+      else if(games[gameId].clients.length >= 3)
       {
-        "method" : "join",
-        "game" : game
+        const payload =
+        {
+          "method" : "error",
+          "reason" : "lobby is full."
+        }
+        clients[clientId].connection.send(JSON.stringify(payload));
       }
-
-      //loop through clients to let them know people have joined
-      game.clients.forEach(c =>
+      else
       {
-        clients[c.clientId].connection.send(JSON.stringify(payload))
-      })
+        const score = 0;
+
+        const color = {"0": "Red", "1": "Green", "2": "Blue"}[games[gameId].clients.length]
+        games[gameId].clients.push
+        ({
+          "clientId" : clientId,
+          "name" : name,
+          "color" : color,
+          "score" : score
+        })
+
+        if(games[gameId].clients.length === 1) updateGameState();
+  
+        const payload =
+        {
+          "method" : "join",
+          "game" : games[gameId]
+        }
+  
+        //loop through clients to let them know people have joined
+        games[gameId].clients.forEach(c =>
+        {
+          clients[c.clientId].connection.send(JSON.stringify(payload))
+        })
+      }
     }
 
     //User plays
@@ -88,6 +109,7 @@ wsServer.on("request", request =>
       const gameId = result.gameId;
       const ballId = result.ballId;
       const color = result.color;
+      const score = result.score;
 
       let state = games[gameId].state;
 
@@ -95,6 +117,8 @@ wsServer.on("request", request =>
 
       state[ballId] = color;
       games[gameId].state = state;
+
+     games[gameId].clients[contains(games[gameId].clients, "clientId", clientId)].score = score;
     }
 
   })
@@ -183,4 +207,13 @@ function game_guid()
   }
   temp = temp.join('');
   return temp;
+}
+
+function contains(arr, key, val) {
+  let count = 0;
+  for (var i = 0; i < arr.length; i++) {
+      if(arr[i][key] === val) break;
+    count ++;
+  }
+  return count;
 }
